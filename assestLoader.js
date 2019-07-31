@@ -6,31 +6,28 @@ function loadfile() {
                 try{
                     let script = document.createElement('script');
                     script.src = scriptObject.path;
+                    script.type = scriptObject.type;
                     scriptObject.id ? script.id = scriptObject.id : null;
                     scriptObject.class ? script.classList.add(scriptObject.class) : null;
                     scriptObject.async ? script.async = "async" : null;
                     scriptObject.defer ? script.defer = "defer" : null;
                     script.addEventListener('load' ,function(){
+                        resolve(true);
                         typeof scriptObject.callback === 'function' ? scriptObject.callback() : null;
                     });
                     script.onerror = function(){
                         this.parentNode.removeChild(this);
                     }
-                    document.head.appendChild(script) === script ? resolve(true) : reject(false);
+                    document.head.appendChild(script) !== script ? reject(false) : null;
                 }
                 catch(err){
-                    (e) => { throw new Error(e) }
+                    (e) => { return e }
                 }
             }
         ).catch(e => {
-            (e) => { throw new Error(e) }
+            (e) => { return e }
         })
     }
-    //Script generator
-    function* scriptGenerator(){
-        yield* scriptQeue
-    }
-
     //Async execute functions
     async function execute(scriptImport){
         let promise = Promise
@@ -62,12 +59,11 @@ function loadfile() {
                     break;
                 case 'wait':
                 default:
-                    execute(executeQueu.reverse())
+                    execute(executeQueu)
                         .then(() => {
                             executeQueu = [];
-                            internalIndex++;
                         })
-                        .catch( e => { 
+                        .catch( e => {
                             return e; 
                         })
                         .finally(internalIndex++);
@@ -82,6 +78,7 @@ function loadfile() {
 
     //Public functions
     function script(scriptPath, optionsOrCallback = {}) {
+        //Adds script to the queu ti be processed
         let def = {
             path: scriptPath,
             id: optionsOrCallback.id || null,
@@ -89,7 +86,7 @@ function loadfile() {
             inline: optionsOrCallback.inline || false,
             async: optionsOrCallback.async || false,
             defer: optionsOrCallback.defer || false,
-            module: optionsOrCallback.module || false,
+            type: optionsOrCallback.type || 'text/javascript',
             callback: optionsOrCallback.callback || null
         };
         if (typeof optionsOrCallback === 'function') {
@@ -99,9 +96,18 @@ function loadfile() {
         return this;
     };
     function wait() {
+        //Wait for all previously added scripts the be loaded before continuing
         scriptQeue.push(['wait'])
         return this;
     };
+    function waitForLoad(ofThisScript){
+        //Bind script to wait for another (specific) script being loaded before being started
+        if (typeof ofThisScript !== 'string'){
+            scriptQeue.push(['wait']);
+        }
+        scriptQeue.push(['waitFor', ofThisScript])
+        return this;
+    }
     function done(callbackSuccess, callbackFail) {
         if (typeof callbackSuccess === 'function'){
             executeQueu().then(
@@ -140,6 +146,7 @@ function loadfile() {
     return ({
         'script' : script,
         'wait' : wait,
+        'waitForLoad': waitForLoad,
         'done' : done
     })
 }
