@@ -10,20 +10,20 @@ function loadfile() {
                     scriptObject.class ? script.classList.add(scriptObject.class) : null;
                     scriptObject.async ? script.async = "async" : null;
                     scriptObject.defer ? script.defer = "defer" : null;
-                    script.onload = function(){
+                    script.addEventListener('load' ,function(){
                         typeof scriptObject.callback === 'function' ? scriptObject.callback() : null;
-                    };
+                    });
                     script.onerror = function(){
                         this.parentNode.removeChild(this);
                     }
                     document.head.appendChild(script) === script ? resolve(true) : reject(false);
                 }
                 catch(err){
-                    reject(err)
+                    (e) => { throw new Error(e) }
                 }
             }
         ).catch(e => {
-            return e
+            (e) => { throw new Error(e) }
         })
     }
     //Script generator
@@ -31,7 +31,7 @@ function loadfile() {
         yield* scriptQeue
     }
 
-    //Async eecute functions
+    //Async execute functions
     async function execute(scriptImport){
         let promise = Promise
             .all(scriptImport)
@@ -41,8 +41,10 @@ function loadfile() {
                         values.reduce((a, b) => {
                             return a + b;
                         }) === values.length ? resolve(true) : reject(false)
-                    })        
+                    }).catch( (e) => { return e } )       
                 }
+            ).catch(
+               (e) => { return e }
             )
         let result = await promise;
         return result
@@ -50,19 +52,30 @@ function loadfile() {
     async function executeQueu(){
         let internalIndex = 0;
         let executeQueu = [];
-        for await (const next of scriptGenerator()){
+        var result;
+        while (internalIndex < scriptQeue.length){
+            let next = scriptQeue[internalIndex]
             switch(next[0]){
                 case 'script':
-                    executeQueu.push(buildTag(next[1]))
+                    executeQueu.push(buildTag(next[1]));
+                    internalIndex++;
                     break;
                 case 'wait':
                 default:
-                    await execute(executeQueu).finally(() => {
-                        executeQueu = [];
-                    });
+                    execute(executeQueu.reverse())
+                        .then(() => {
+                            executeQueu = [];
+                            internalIndex++;
+                        })
+                        .catch( e => { 
+                            return e; 
+                        })
+                        .finally(internalIndex++);
                     break;
             }
-            if (internalIndex++ == scriptQeue.length) var result = true
+            if (internalIndex == scriptQeue.length){
+                result = true
+            }
         }
         return await result;
     }
@@ -89,18 +102,22 @@ function loadfile() {
         scriptQeue.push(['wait'])
         return this;
     };
-    function done(callbackSuccess = null, callbackFail = null) {
+    function done(callbackSuccess, callbackFail) {
         if (typeof callbackSuccess === 'function'){
             executeQueu().then(
                 (done, err) => {
-                    if (err) typeof callbackFail === 'function' ?  callbackFail(err) : null;
+                    if (err) {
+                        typeof callbackFail === 'function' ?  callbackFail.call(this, err) : null;
+                    }
                     else {
                         scriptQeue = [];
-                        callbackSuccess(done)
+                        callbackSuccess.call(this, done)
                     }
                 }    
             ).catch(
-                e => typeof callbackFail === 'function' ?  callbackFail(e) : null
+                (e) => {
+                    typeof callbackFail === 'function' ?  callbackFail.call(this, e) : null
+                }
             )
         }
         else{
