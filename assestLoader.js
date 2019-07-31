@@ -1,6 +1,6 @@
 function loadfile() {
     let scriptQeue = [];
-
+    //Helper functions
     function buildTag(scriptObject){
         return new Promise((resolve, reject) => {
                 try{
@@ -26,6 +26,48 @@ function loadfile() {
             return e
         })
     }
+    //Script generator
+    function* scriptGenerator(){
+        yield* scriptQeue
+    }
+
+    //Async eecute functions
+    async function execute(scriptImport){
+        let promise = Promise
+            .all(scriptImport)
+            .then(
+                (values) => {
+                    return new Promise((resolve, reject) => {
+                        values.reduce((a, b) => {
+                            return a + b;
+                        }) === values.length ? resolve(true) : reject(false)
+                    })        
+                }
+            )
+        let result = await promise;
+        return result
+    }
+    async function executeQueu(){
+        let internalIndex = 0;
+        let executeQueu = [];
+        for await (const next of scriptGenerator()){
+            switch(next[0]){
+                case 'script':
+                    executeQueu.push(buildTag(next[1]))
+                    break;
+                case 'wait':
+                default:
+                    await execute(executeQueu).finally(() => {
+                        executeQueu = [];
+                    });
+                    break;
+            }
+            if (internalIndex++ == scriptQeue.length) var result = true
+        }
+        return await result;
+    }
+
+    //Public functions
     function script(scriptPath, optionsOrCallback = {}) {
         let def = {
             path: scriptPath,
@@ -34,28 +76,50 @@ function loadfile() {
             inline: optionsOrCallback.inline || false,
             async: optionsOrCallback.async || false,
             defer: optionsOrCallback.defer || false,
+            module: optionsOrCallback.module || false,
             callback: optionsOrCallback.callback || null
         };
         if (typeof optionsOrCallback === 'function') {
             def.callback = optionsOrCallback;
         }
-        scriptQeue.push(buildTag(def));
+        scriptQeue.push(['script', def]);
         return this;
     };
     function wait() {
-        Promise
-            .all(scriptQeue)
-            .then(
-                scripts => {
-                    console.log(scripts)
-                }
+        scriptQeue.push(['wait'])
+        return this;
+    };
+    function done(callbackSuccess = null, callbackFail = null) {
+        if (typeof callbackSuccess === 'function'){
+            executeQueu().then(
+                (done, err) => {
+                    if (err) typeof callbackFail === 'function' ?  callbackFail(err) : null;
+                    else {
+                        scriptQeue = [];
+                        callbackSuccess(done)
+                    }
+                }    
+            ).catch(
+                e => typeof callbackFail === 'function' ?  callbackFail(e) : null
             )
-        return this;
+        }
+        else{
+            return new Promise((resolve, reject) => {
+                executeQueu().then(
+                    (done, err) => {
+                        if (err) reject(err)
+                        else {
+                            scriptQeue = [];
+                            resolve (done)
+                        }
+                    }
+                ).catch(
+                    e => reject(e)
+                )
+            })
+        }
     };
-    function done() {
-        console.log('done');
-        return this;
-    };
+    
     return ({
         'script' : script,
         'wait' : wait,
