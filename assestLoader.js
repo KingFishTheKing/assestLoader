@@ -3,7 +3,6 @@ function loadfile() {
     //Helper functions
     function buildTag(scriptObject){
         return new Promise((resolve, reject) => {
-                try{
                     let script = document.createElement('script');
                     script.src = scriptObject.path;
                     script.type = scriptObject.type;
@@ -12,36 +11,38 @@ function loadfile() {
                     scriptObject.async ? script.async = "async" : null;
                     scriptObject.defer ? script.defer = "defer" : null;
                     script.addEventListener('load' ,function(){
-                        resolve(true);
+                        resolve(scriptObject)
                         typeof scriptObject.callback === 'function' ? scriptObject.callback() : null;
                     });
                     script.onerror = function(){
                         this.parentNode.removeChild(this);
                     }
                     document.head.appendChild(script) !== script ? reject(false) : null;
-                }
-                catch(err){
-                    (e) => { return e }
-                }
             }
-        ).catch(e => {
+        ).catch(
             (e) => { return e }
-        })
+        )
     }
     //Async execute functions
     async function execute(scriptImport){
         let promise = Promise
-            .all(scriptImport)
+            .all(
+                scriptImport.map(s => {
+                    return buildTag(s)
+                })    
+            )
             .then(
                 (values) => {
                     return new Promise((resolve, reject) => {
                         values.reduce((a, b) => {
-                            return a + b;
-                        }) === values.length ? resolve(true) : reject(false)
-                    }).catch( (e) => { return e } )       
+                            return b ? a+1 : a;  
+                        }, 0) === values.length ? resolve(values.filter(s => {
+                            return s 
+                        })) : reject(false)
+                    }).catch( (e) => { return e } )   
                 }
             ).catch(
-               (e) => { return e }
+                (e) => { return e}
             )
         let result = await promise;
         return result
@@ -49,20 +50,42 @@ function loadfile() {
     async function executeQueu(){
         let internalIndex = 0;
         let executeQueu = [];
-        var result;
+        let executedQeue = [];
+        let waitQueu = [];
+        function cleanUpAfterExecute(done, err){
+            if (!err){
+                executeQueu = [];
+                executedQeue.push(...done.map(o => {
+                    return o.path 
+                }));
+                waitQueu.forEach(w => {
+                    if (found = executedQeue.find(e => {
+                        return e == w.for
+                    })){
+                        execute([w.execute]).then(
+                            waitQueu.slice(waitQueu.findIndex(w), 1)
+                        )
+                    }
+                })
+            }
+        }
         while (internalIndex < scriptQeue.length){
             let next = scriptQeue[internalIndex]
             switch(next[0]){
                 case 'script':
-                    executeQueu.push(buildTag(next[1]));
+                    executeQueu.push(next[1]);
+                    internalIndex++;
+                    break;
+                case 'waitFor':
+                    waitQueu.push({
+                        for: next[1],
+                        execute: executeQueu.pop()
+                    })
                     internalIndex++;
                     break;
                 case 'wait':
-                default:
                     execute(executeQueu)
-                        .then(() => {
-                            executeQueu = [];
-                        })
+                        .then((done, err) => cleanUpAfterExecute(done, err))
                         .catch( e => {
                             return e; 
                         })
@@ -70,7 +93,13 @@ function loadfile() {
                     break;
             }
             if (internalIndex == scriptQeue.length){
-                result = true
+                //Force one last check to make sure all script have been pushed
+                execute(executeQueu)
+                    .then((done, err) => cleanUpAfterExecute(done, err))
+                    .catch( e => {
+                        return e; 
+                    })
+                var result = true
             }
         }
         return await result;
@@ -100,12 +129,14 @@ function loadfile() {
         scriptQeue.push(['wait'])
         return this;
     };
-    function waitForLoad(ofThisScript){
+    function waitFor(thisScript){
         //Bind script to wait for another (specific) script being loaded before being started
-        if (typeof ofThisScript !== 'string'){
+        if (typeof thisScript !== 'string'){
             scriptQeue.push(['wait']);
         }
-        scriptQeue.push(['waitFor', ofThisScript])
+        else{
+            scriptQeue.push(['waitFor', thisScript])
+        }
         return this;
     }
     function done(callbackSuccess, callbackFail) {
@@ -146,7 +177,7 @@ function loadfile() {
     return ({
         'script' : script,
         'wait' : wait,
-        'waitForLoad': waitForLoad,
+        'waitFor': waitFor,
         'done' : done
     })
 }
